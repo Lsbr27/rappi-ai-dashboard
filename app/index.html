@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Rappi Availability Intelligence</title>
-    <link rel="icon" href="data:," />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -65,9 +65,30 @@
           <small id="kpiMaxDate">-</small>
         </article>
         <article>
-          <span>Cambio total</span>
-          <strong id="kpiChange">-</strong>
-          <small>Primer vs último punto</small>
+          <span>Mayor caída</span>
+          <strong id="kpiDrop">-</strong>
+          <small id="kpiDropDate">vs hora anterior</small>
+        </article>
+      </section>
+
+      <section class="diagnosis" aria-label="Diagnóstico del periodo">
+        <article id="statusCard" class="status-card">
+          <div>
+            <span class="status-label">Estado del periodo</span>
+            <strong id="periodStatus">Calculando...</strong>
+            <p id="periodStatusReason">Analizando variaciones de disponibilidad.</p>
+          </div>
+          <span id="statusBadge" class="badge">Normal</span>
+        </article>
+        <article class="insight-strip">
+          <div>
+            <span>Insight ejecutivo</span>
+            <p id="executiveInsight">Cargando resumen del periodo...</p>
+          </div>
+          <div>
+            <span>Recomendación</span>
+            <p id="operationalRecommendation">Cargando recomendación operativa...</p>
+          </div>
         </article>
       </section>
 
@@ -85,6 +106,7 @@
               </div>
             </div>
             <svg id="lineChart" role="img" aria-label="Serie de disponibilidad"></svg>
+            <div id="chartTooltip" class="chart-tooltip" aria-hidden="true"></div>
           </article>
 
           <div class="grid-two">
@@ -105,7 +127,7 @@
                   <p>Horas con mayor variación negativa</p>
                 </div>
               </div>
-              <div id="dropsList" class="rank-list"></div>
+              <div id="dropsList" class="drop-bars"></div>
             </article>
           </div>
 
@@ -147,6 +169,8 @@
             <button type="button" data-question="¿Cuál fue el punto mínimo?">Mínimo</button>
             <button type="button" data-question="¿Cuándo ocurrió la mayor caída?">Mayor caída</button>
             <button type="button" data-question="Dame un resumen ejecutivo">Resumen</button>
+            <button type="button" data-question="¿Qué debería investigar?">Investigar</button>
+            <button type="button" data-question="¿Qué tan severa fue la peor caída?">Severidad</button>
           </div>
           <form id="chatForm" class="chat-form">
             <input
