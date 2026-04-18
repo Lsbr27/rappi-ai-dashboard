@@ -1,6 +1,6 @@
-# Rappi Availability Intelligence
+# rappi-ai-dashboard
 
-Aplicación web local para visualizar y conversar con datos históricos de disponibilidad de tiendas.
+Aplicación web local para visualizar y conversar con datos históricos de disponibilidad de tiendas en Rappi.
 
 ## Qué incluye
 
