@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rappi Availability Intelligence</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Rappi Operations Intelligence</p>
+          <h1>Disponibilidad histórica de tiendas</h1>
+          <p class="lead">
+            Dashboard local para explorar la métrica
+            <strong>synthetic_monitoring_visible_stores</strong>, detectar caídas y conversar
+            con los datos procesados desde los CSV.
+          </p>
+        </div>
+        <div class="hero-panel">
+          <span class="status-dot"></span>
+          <div>
+            <strong id="data-health">Dataset listo</strong>
+            <small id="data-window">Cargando rango...</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="filters" aria-label="Filtros del dashboard">
+        <label>
+          Granularidad
+          <select id="granularity">
+            <option value="raw">Muestra compacta</option>
+            <option value="hourly" selected>Promedio horario</option>
+            <option value="daily">Promedio diario</option>
+          </select>
+        </label>
+        <label>
+          Desde
+          <input id="startDate" type="date" />
+        </label>
+        <label>
+          Hasta
+          <input id="endDate" type="date" />
+        </label>
+        <button id="resetFilters" type="button">Restablecer</button>
+      </section>
+
+      <section class="kpis" aria-label="Métricas clave">
+        <article>
+          <span>Promedio visible</span>
+          <strong id="kpiAvg">-</strong>
+          <small>Disponibilidad observada en el rango</small>
+        </article>
+        <article>
+          <span>Punto mínimo</span>
+          <strong id="kpiMin">-</strong>
+          <small id="kpiMinDate">-</small>
+        </article>
+        <article>
+          <span>Punto máximo</span>
+          <strong id="kpiMax">-</strong>
+          <small id="kpiMaxDate">-</small>
+        </article>
+        <article>
+          <span>Cambio total</span>
+          <strong id="kpiChange">-</strong>
+          <small>Primer vs último punto</small>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <div class="dashboard">
+          <article class="panel main-chart">
+            <div class="panel-heading">
+              <div>
+                <h2>Serie de disponibilidad</h2>
+                <p id="chartSubtitle">Promedio horario</p>
+              </div>
+              <div class="legend">
+                <span></span>
+                Tiendas visibles
+              </div>
+            </div>
+            <svg id="lineChart" role="img" aria-label="Serie de disponibilidad"></svg>
+          </article>
+
+          <div class="grid-two">
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Promedio diario</h2>
+                  <p>Lectura ejecutiva por día</p>
+                </div>
+              </div>
+              <svg id="barChart" role="img" aria-label="Promedio diario"></svg>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Mayores caídas</h2>
+                  <p>Horas con mayor variación negativa</p>
+                </div>
+              </div>
+              <div id="dropsList" class="rank-list"></div>
+            </article>
+          </div>
+
+          <article class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Exports procesados</h2>
+                <p>Archivos CSV usados como fuente</p>
+              </div>
+              <input id="fileSearch" type="search" placeholder="Buscar archivo" />
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Archivo</th>
+                    <th>Inicio</th>
+                    <th>Fin</th>
+                    <th>Promedio</th>
+                    <th>Mín</th>
+                    <th>Máx</th>
+                  </tr>
+                </thead>
+                <tbody id="filesTable"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+
+        <aside class="chat panel" aria-label="Chatbot semántico">
+          <div class="panel-heading">
+            <div>
+              <h2>Chatbot semántico</h2>
+              <p>Pregunta sobre el rango visible</p>
+            </div>
+          </div>
+          <div id="chatMessages" class="chat-messages"></div>
+          <div class="suggestions">
+            <button type="button" data-question="¿Cuál fue el punto mínimo?">Mínimo</button>
+            <button type="button" data-question="¿Cuándo ocurrió la mayor caída?">Mayor caída</button>
+            <button type="button" data-question="Dame un resumen ejecutivo">Resumen</button>
+          </div>
+          <form id="chatForm" class="chat-form">
+            <input
+              id="chatInput"
+              type="text"
+              autocomplete="off"
+              placeholder="Ej: ¿cómo se comportó la disponibilidad?"
+            />
+            <button type="submit">Enviar</button>
+          </form>
+        </aside>
+      </section>
+    </main>
+
+    <script src="./data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
