@@ -285,28 +285,28 @@ function DistributionChart({
             />
             <YAxis
               domain={usesAverageMetric ? ['auto', 'auto'] : [0, 100]}
-              tickFormatter={(value) => usesAverageMetric ? formatValue(Number(value)) : `${value}%`}
+              tickFormatter={(value: number | string) => usesAverageMetric ? formatValue(Number(value)) : `${value}%`}
               tick={{ fontSize: 11, fill: '#778293' }}
               tickLine={false}
               axisLine={{ stroke: '#dfe4eb' }}
             />
             <Tooltip
-              formatter={(value, name, props) => {
+              formatter={(value: number | string, name: string, props: { payload?: { avgValue?: number; isTop?: boolean } }) => {
                 if (usesAverageMetric) {
                   return [
                     formatValue(Number(value)),
-                    props.payload.avgValue < (referenceAverage || 0)
+                    (props.payload?.avgValue ?? 0) < (referenceAverage || 0)
                       ? 'Promedio bajo la referencia'
                       : 'Promedio sobre la referencia',
                   ];
                 }
                 if (name === 'metric') return [`${value}%`, 'Tiempo bajo lo esperado'];
                 return [
-                  props.payload.isTop ? 'Top 3 crítico' : 'Referencia',
+                  props.payload?.isTop ? 'Top 3 crítico' : 'Referencia',
                   'Foco visual',
                 ];
               }}
-              labelFormatter={(label) => `${label}`}
+              labelFormatter={(label: string) => `${label}`}
               contentStyle={{
                 backgroundColor: '#fff',
                 border: '1px solid #e9edf3',
@@ -368,15 +368,16 @@ function ImpactChart({ data }: { data: DailyImpactBucket[] }) {
               axisLine={{ stroke: '#dfe4eb' }}
             />
             <YAxis
-              tickFormatter={(value) => formatValue(Number(value))}
+              tickFormatter={(value: number | string) => formatValue(Number(value))}
               tick={{ fontSize: 11, fill: '#778293' }}
               tickLine={false}
               axisLine={{ stroke: '#dfe4eb' }}
             />
             <Tooltip
-              content={({ active, payload, label }) => {
+              content={({ active, payload, label }: { active?: boolean; payload?: Array<{ payload?: DailyImpactBucket }>; label?: string }) => {
                 if (!active || !payload?.length) return null;
-                const point = payload[0].payload as DailyImpactBucket;
+                const point = payload[0].payload;
+                if (!point) return null;
                 return (
                   <Box
                     bg="white"
@@ -405,7 +406,7 @@ function ImpactChart({ data }: { data: DailyImpactBucket[] }) {
                 );
               }}
             />
-            <Bar dataKey="totalLoss" radius={[5, 5, 0, 0]} barSize={40}>
+            <Bar dataKey="totalLoss" radius={[5, 5, 0, 0]} barSize={18}>
               {data.map((entry, index) => (
                 <Cell key={entry.label} fill={IMPACT_COLORS[index] ?? '#a0a8b8'} />
               ))}
