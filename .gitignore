@@ -2,6 +2,9 @@
 *.png
 ~$*
 
+# HTML prototype — replaced by figma-dashboard
+app/
+
 # Raw challenge files and local exports
 Archivo (1)/
 *.docx

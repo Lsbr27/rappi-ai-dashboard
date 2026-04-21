@@ -1,63 +1,57 @@
-# rappi-ai-dashboard
+# Rappi Availability Dashboard
 
-Aplicación web local para visualizar y conversar con datos históricos de disponibilidad de tiendas en Rappi.
+Dashboard para analizar la disponibilidad histórica de tiendas visibles en Rappi, construido sobre datos de monitoreo sintético (`synthetic_monitoring_visible_stores`).
 
-## Qué incluye
+## Stack
 
-- Dashboard con KPIs de disponibilidad visible.
-- Filtros por rango de fecha y granularidad.
-- Gráfico de serie temporal, promedio diario y mayores caídas horarias.
-- Tabla de archivos CSV procesados.
-- Chatbot semántico local que responde sobre el rango visible del dashboard.
+- **React 18** + **Vite**
+- **Chakra UI** — componentes y layout
+- **Recharts** — gráficos interactivos
+- **Lucide React** — íconos
 
-## Cómo correr
+## Correr localmente
+
+```bash
+cd figma-dashboard
+npm install
+npm run dev
+```
+
+Abre `http://localhost:5173`
+
+## Regenerar los datos
+
+Los datos viven en `figma-dashboard/public/data.js`, generados a partir de los CSVs de exportación:
 
 ```bash
 node scripts/preprocess.js
-python3 -m http.server 4173 --directory app
+cp app/data.js figma-dashboard/public/data.js
 ```
 
-Luego abre:
+> Los CSV originales (`Archivo (1)/`) no se incluyen en el repositorio.
 
-```txt
-http://127.0.0.1:4173
+## Estructura
+
+```
+├── figma-dashboard/        # Dashboard React (fuente principal)
+│   ├── public/data.js      # Dataset preprocesado
+│   └── src/
+│       ├── app/
+│       │   ├── components/ # DiagnosticInsights, MetricsCards, StoreAvailabilityDashboard
+│       │   └── utils/      # availabilityData.ts — toda la lógica de análisis
+│       └── main.tsx
+└── scripts/
+    └── preprocess.js       # Transforma CSVs → data.js
 ```
 
-## Datos
+## Qué muestra
 
-La carpeta `Archivo (1)` contiene 201 archivos CSV. Cada archivo viene en formato ancho:
+- **KPIs** — disponibilidad actual, estabilidad, caídas detectadas, impacto, tiempo de recuperación
+- **Evolución temporal** — serie real vs. promedio esperado, puntos críticos marcados
+- **Horas y días más problemáticos** — ranking con porcentaje bajo lo esperado
+- **Distribución por hora y día** — gráficos de barras con escala de severidad
+- **Impacto de caídas por día** — top 5 días por pérdida acumulada de tiendas visibles
 
-```txt
-Plot name, metric, Value Prefix, Value Suffix, timestamp_1, timestamp_2, ...
-NOW, synthetic_monitoring_visible_stores, ..., value_1, value_2, ...
-```
+## Limitaciones
 
-El script `scripts/preprocess.js` transforma esos CSV en `app/data.js`, con:
-
-- serie compacta para visualización,
-- agregados horarios,
-- agregados diarios,
-- mayores caídas y recuperaciones,
-- resumen por archivo.
-
-## Decisiones
-
-- Se construyó sin dependencias externas para poder demostrarlo localmente y rápido.
-- El chatbot no inventa datos: responde usando los mismos agregados visibles en el dashboard.
-- La visualización usa SVG nativo para evitar problemas de instalación durante la prueba.
-- La app separa preprocesamiento, datos y UI para que luego pueda migrarse a Next.js, Vercel AI SDK o una base real.
-
-## Cómo explicar el uso de AI
-
-Para la presentación:
-
-- AI se usó como agente de ingeniería para inspeccionar el dataset, detectar que venía en formato ancho y diseñar una solución local.
-- El agente ayudó a crear el preprocesador, la interfaz, los cálculos semánticos y las respuestas del chatbot.
-- La decisión clave fue no usar un LLM en runtime, porque la prueba puede demostrarse sin API keys y con respuestas auditables.
-- En producción, el chatbot podría evolucionar a Vercel AI SDK/OpenAI/Claude con tools controladas para consultar warehouse, capa semántica y dashboards.
-
-## Limitaciones conocidas
-
-- El dataset disponible contiene una métrica agregada (`synthetic_monitoring_visible_stores`), no eventos por tienda individual.
-- Por eso el dashboard analiza disponibilidad agregada, no disponibilidad por `store_id`, ciudad o vertical.
-- Si se recibe un dataset granular, la misma estructura puede ampliarse con filtros por tienda, ciudad, marca, motivo y estado.
+El dataset contiene una métrica agregada, no eventos por tienda individual. El análisis refleja disponibilidad total, no segmentada por tienda, ciudad o vertical. Con un dataset granular la misma estructura puede extenderse con esos filtros.

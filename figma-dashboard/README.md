@@ -1,11 +1,29 @@
+# Rappi Availability Dashboard
 
-  # Store Availability Dashboard
+Dashboard React para visualizar y analizar disponibilidad histórica de tiendas visibles en Rappi.
 
-  This is a code bundle for Store Availability Dashboard. The original project is available at https://www.figma.com/design/C9bj8AmYqmxqNggRL6VfD3/Store-Availability-Dashboard.
+## Requisitos
 
-  ## Running the code
+- Node.js 18+
+- npm 9+
 
-  Run `npm i` to install the dependencies.
+## Instalación y uso
 
-  Run `npm run dev` to start the development server.
-  
+```bash
+npm install
+npm run dev
+```
+
+Abre `http://localhost:5173`
+
+## Datos
+
+Los datos se cargan desde `public/data.js`, generado por `scripts/preprocess.js` a partir de los CSV de exportación. El archivo ya está incluido en el repositorio.
+
+## Scripts
+
+| Comando | Descripción |
+|---------|-------------|
+| `npm run dev` | Servidor de desarrollo |
+| `npm run build` | Build de producción en `dist/` |
+| `npm run preview` | Previsualizar el build |
