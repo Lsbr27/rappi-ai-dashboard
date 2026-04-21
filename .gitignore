@@ -1,9 +1,10 @@
 .DS_Store
+*.png
+~$*
 
 # Raw challenge files and local exports
 Archivo (1)/
 *.docx
-~$*
 
 # Dependencies / build outputs if the app evolves
 node_modules/
