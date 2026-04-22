@@ -339,22 +339,22 @@ function DistributionChart({
 
 const IMPACT_COLORS = ['#ff441f', '#ff441f', '#f59e0b', '#f59e0b', '#a0a8b8'];
 
-function ImpactChart({ data }: { data: DailyImpactBucket[] }) {
+function ImpactChart({ data, worstDayLabel }: { data: DailyImpactBucket[]; worstDayLabel?: string | null }) {
   if (!data.length) return null;
 
   const top = data[0];
   const second = data[1];
   const secondText = second ? `, seguido por el ${second.label}` : '';
-  const insight = `El ${top.label} concentró la mayor pérdida con ~${formatValue(top.totalLoss)} tiendas afectadas${secondText}. ${data.length >= 2 ? 'Estos días requieren revisión prioritaria.' : 'Este día requiere revisión prioritaria.'}`;
+  const insight = `El ${top.label} concentró la mayor volatilidad acumulada (${formatValue(top.cumulativeDropMagnitude)})${secondText}. ${data.length >= 2 ? 'Estos días requieren revisión prioritaria.' : 'Este día requiere revisión prioritaria.'}`;
 
   return (
     <Panel>
       <Box mb={4}>
         <Text fontSize="15px" fontWeight="750" color="#30323a" lineHeight="1.2">
-          Impacto de caídas por día
+          Volatilidad acumulada por día
         </Text>
         <Text fontSize="13px" color="#8a909b" mt={1} lineHeight="1.35">
-          ¿Qué días generaron mayor pérdida de tiendas visibles?
+          ¿Qué días concentraron más variaciones negativas en la señal?
         </Text>
       </Box>
       <Box h={{ base: '260px', md: '300px' }}>
@@ -390,8 +390,8 @@ function ImpactChart({ data }: { data: DailyImpactBucket[] }) {
                     <Text fontSize="12px" fontWeight="750" color="#30323a" mb={2}>{label}</Text>
                     <Box display="grid" gap={1}>
                       <HStack justify="space-between" gap={4}>
-                        <Text fontSize="12px" color="#5d6470">Tiendas perdidas</Text>
-                        <Text fontSize="12px" fontWeight="750" color="#30323a">{formatValue(point.totalLoss)}</Text>
+                        <Text fontSize="12px" color="#5d6470">Volatilidad acumulada</Text>
+                        <Text fontSize="12px" fontWeight="750" color="#30323a">{formatValue(point.cumulativeDropMagnitude)}</Text>
                       </HStack>
                       <HStack justify="space-between" gap={4}>
                         <Text fontSize="12px" color="#5d6470">Nº de caídas</Text>
@@ -406,9 +406,12 @@ function ImpactChart({ data }: { data: DailyImpactBucket[] }) {
                 );
               }}
             />
-            <Bar dataKey="totalLoss" radius={[5, 5, 0, 0]} barSize={18}>
+            <Bar dataKey="cumulativeDropMagnitude" radius={[5, 5, 0, 0]} barSize={18}>
               {data.map((entry, index) => (
-                <Cell key={entry.label} fill={IMPACT_COLORS[index] ?? '#a0a8b8'} />
+                <Cell
+                  key={entry.label}
+                  fill={entry.label === worstDayLabel ? '#7c3aed' : (IMPACT_COLORS[index] ?? '#a0a8b8')}
+                />
               ))}
             </Bar>
           </BarChart>
@@ -417,6 +420,11 @@ function ImpactChart({ data }: { data: DailyImpactBucket[] }) {
       <Text fontSize="13px" color="#5d6470" lineHeight="1.4" mt={3}>
         {insight}
       </Text>
+      {worstDayLabel && data.some((d) => d.label === worstDayLabel) && (
+        <Text fontSize="12px" color="#7c3aed" fontWeight="700" mt={2}>
+          Barra violeta: {worstDayLabel} identificado como evento crítico por el análisis de baseline.
+        </Text>
+      )}
     </Panel>
   );
 }
@@ -436,8 +444,14 @@ function buildHourlyAverageInsight(labels: string, worstValue: number, reference
     return 'No hay horas con promedio bajo claro; la disponibilidad se mantiene equilibrada durante el día.';
   }
 
-  const gap = Math.max(referenceAverage - worstValue, 0);
-  return `Las horas ${labels} tienen el menor promedio de tiendas visibles; la peor queda ${formatValue(gap)} tiendas bajo el promedio general.`;
+  const gapPct = referenceAverage > 0
+    ? Math.round(((referenceAverage - worstValue) / referenceAverage) * 100)
+    : 0;
+
+  if (gapPct <= 0) {
+    return `Las horas ${labels} tienen el menor promedio observado, pero se mantienen dentro del nivel de referencia (${formatValue(referenceAverage)}).`;
+  }
+  return `Las horas ${labels} tienen el menor promedio de tiendas visibles; la peor queda un ${gapPct}% bajo el nivel de referencia.`;
 }
 
 function buildDistributionInsight(kind: 'hour' | 'day', labels: string, worstPct: number) {
@@ -477,6 +491,18 @@ export function DiagnosticInsights({ analysis }: DiagnosticInsightsProps) {
   const hourlyDistribution = sortHours(analysis.problematicHours);
   const dailyDistribution = sortDays(analysis.problematicDays);
 
+  // worstDay from baselineContext: ISO "YYYY-MM-DD" → match against formatted time strings "DD/MM HH:MM"
+  const worstDay = analysis.baselineContext.worstDay;
+  const worstDayPrefix = worstDay
+    ? (() => { const [, month, day] = worstDay.day.split('-'); return `${day}/${month}`; })()
+    : null;
+  // First chartData point whose time label starts with the worstDay date prefix
+  const worstDayX = worstDayPrefix
+    ? (analysis.chartData.find((p) => p.time.startsWith(worstDayPrefix))?.time ?? null)
+    : null;
+  // Same prefix used as DailyImpactBucket.label format ("DD/MM")
+  const worstDayImpactLabel = worstDayPrefix;
+
   return (
     <Box>
       <Grid templateColumns={{ base: '1fr', xl: '2.05fr 1.15fr' }} gap={4} alignItems="stretch">
@@ -511,6 +537,15 @@ export function DiagnosticInsights({ analysis }: DiagnosticInsightsProps) {
                   content={<EvolutionTooltip />}
                 />
                 <ReferenceLine y={analysis.expectedAverage} stroke="#f59e0b" strokeDasharray="4 4" />
+                {worstDayX && (
+                  <ReferenceLine
+                    x={worstDayX}
+                    stroke="#7c3aed"
+                    strokeDasharray="3 4"
+                    strokeWidth={2}
+                    label={{ value: `Incidente crítico · ${worstDayPrefix}`, position: 'insideTopLeft', fontSize: 11, fill: '#7c3aed' }}
+                  />
+                )}
                 <Line
                   type="monotone"
                   dataKey="value"
@@ -539,7 +574,7 @@ export function DiagnosticInsights({ analysis }: DiagnosticInsightsProps) {
               }
               body={
                 biggestDrop
-                  ? `De ${formatValue(biggestDrop.from)} a ${formatValue(biggestDrop.to)} el ${biggestDrop.time}.`
+                  ? `El ${biggestDrop.time}: de ${formatValue(biggestDrop.from)} a ${formatValue(biggestDrop.to)} tiendas visibles.`
                   : 'La serie no muestra una variación negativa relevante en el periodo.'
               }
             />
@@ -554,8 +589,12 @@ export function DiagnosticInsights({ analysis }: DiagnosticInsightsProps) {
             <InsightBlock
               tone="blue"
               label="Recuperación"
-              title={`${formatMinutes(analysis.avgRecoveryMinutes)} en promedio`}
-              body="Tiempo típico para volver al rango esperado después de una caída."
+              title={`${formatMinutes(analysis.recoveryStats.median)} mediana`}
+              body={
+                analysis.recoveryStats.max > 0
+                  ? `Rango: ${formatMinutes(analysis.recoveryStats.min)} – ${formatMinutes(analysis.recoveryStats.max)}. Basado en ${analysis.incidents.length} incidente${analysis.incidents.length !== 1 ? 's' : ''} cerrado${analysis.incidents.length !== 1 ? 's' : ''}.`
+                  : 'Sin suficientes incidentes cerrados para calcular estadísticas de recuperación.'
+              }
             />
           </Box>
         </Panel>
@@ -610,7 +649,7 @@ export function DiagnosticInsights({ analysis }: DiagnosticInsightsProps) {
       </Grid>
 
       <Box mt={4}>
-        <ImpactChart data={analysis.dailyImpact} />
+        <ImpactChart data={analysis.dailyImpact} worstDayLabel={worstDayImpactLabel} />
       </Box>
     </Box>
   );

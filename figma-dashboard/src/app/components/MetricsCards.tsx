@@ -21,7 +21,9 @@ const NEUTRAL = '#667085';
 interface MetricsCardsProps {
   metrics: {
     uptime: number;
+    /** @legacy */
     avgDowntime: number;
+    averageDropMagnitude: number;
     latestVisible: number;
   };
   analysis: DiagnosticAnalysis;
@@ -150,8 +152,8 @@ export function MetricsCards({ metrics, analysis }: MetricsCardsProps) {
   }));
   const latestIsBelowRange = metrics.latestVisible < analysis.expectedThreshold;
   const hasRecurrentDrops = analysis.importantDrops >= 3;
-  const avgRecoveryIsHigh = analysis.avgRecoveryMinutes >= 8 * 60;
-  const avgDropIsRelevant = metrics.avgDowntime >= analysis.expectedAverage * 0.08;
+  const avgRecoveryIsHigh = analysis.recoveryStats.avg >= 8 * 60;
+  const avgDropIsRelevant = metrics.averageDropMagnitude >= analysis.expectedAverage * 0.08;
 
   const cards = [
     {
@@ -167,8 +169,8 @@ export function MetricsCards({ metrics, analysis }: MetricsCardsProps) {
     {
       title: 'Estabilidad del sistema',
       value: `${metrics.uptime}%`,
-      suffix: 'dentro del rango esperado',
-      description: 'Porcentaje de lecturas sanas por tramo.',
+      suffix: 'lecturas sobre umbral saludable',
+      description: '% de horas con señal ≥ baseline × 0.85. No mide infraestructura, sino calidad de señal.',
       icon: ArrowRight,
       sparkline: stabilitySeries,
       status: metrics.uptime >= 90 ? 'stable' : metrics.uptime >= 75 ? 'attention' : 'unstable',
@@ -183,19 +185,21 @@ export function MetricsCards({ metrics, analysis }: MetricsCardsProps) {
       status: hasRecurrentDrops ? 'unstable' : analysis.importantDrops > 0 ? 'attention' : 'stable',
     },
     {
-      title: 'Impacto de caídas',
-      value: formatNumber(metrics.avgDowntime),
-      suffix: 'tiendas por caída',
-      description: 'Magnitud promedio de las pérdidas.',
+      title: 'Magnitud promedio de caída',
+      value: formatNumber(metrics.averageDropMagnitude),
+      suffix: 'unidades por evento de caída',
+      description: 'Media del delta absoluto en lecturas con variación negativa.',
       icon: ArrowDown,
       sparkline: dropImpactSeries,
       status: avgDropIsRelevant ? 'attention' : 'stable',
     },
     {
       title: 'Tiempo de recuperación',
-      value: formatMinutes(analysis.avgRecoveryMinutes),
-      suffix: analysis.incidents.length ? 'promedio observado' : 'sin historial suficiente',
-      description: 'Duración de recuperación en incidentes cerrados.',
+      value: formatMinutes(analysis.recoveryStats.median),
+      suffix: analysis.incidents.length
+        ? `mediana · rango ${formatMinutes(analysis.recoveryStats.min)}–${formatMinutes(analysis.recoveryStats.max)}`
+        : 'sin historial suficiente',
+      description: 'Mediana del tiempo hasta volver al rango esperado en incidentes cerrados.',
       icon: RotateCcw,
       sparkline: recoverySeries,
       status: avgRecoveryIsHigh ? 'attention' : 'stable',

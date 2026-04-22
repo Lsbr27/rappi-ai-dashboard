@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 import { Box, HStack, Heading, Text, VStack } from '@chakra-ui/react';
 import { DiagnosticInsights } from './DiagnosticInsights';
+import { InsightsAssistant } from './InsightsAssistant';
 import { MetricsCards } from './MetricsCards';
-import { buildDashboardData, buildDiagnosticAnalysis, getInitialDateRange } from '../utils/availabilityData';
+import { buildDashboardData, buildDiagnosticAnalysis, formatValue, getInitialDateRange } from '../utils/availabilityData';
 
 export function StoreAvailabilityDashboard() {
   const dateRange = useMemo(() => getInitialDateRange(), []);
@@ -14,8 +15,26 @@ export function StoreAvailabilityDashboard() {
     () => buildDashboardData(dateRange.start, dateRange.end),
     [dateRange],
   );
-  const generalStatus =
-    'La disponibilidad presenta caídas recurrentes en horas críticas, lo que indica inestabilidad en el sistema.';
+  const generalStatus = useMemo(() => {
+    const { reviewShare, biggestDrop, problematicHours, importantDrops } = diagnosticAnalysis;
+    const stateLabel = reviewShare >= 25 ? 'crítico' : reviewShare >= 10 ? 'con alertas' : 'estable';
+    const parts: string[] = [
+      `Estado ${stateLabel}: el ${reviewShare}% de las lecturas cayeron bajo el umbral saludable.`,
+    ];
+    if (importantDrops > 0 && biggestDrop) {
+      parts.push(`Evento más grave el ${biggestDrop.time}: bajó ${formatValue(biggestDrop.drop)} tiendas.`);
+    }
+    const mostVulnerable = problematicHours[0];
+    if (mostVulnerable && mostVulnerable.belowPct >= 30) {
+      parts.push(`Franja más vulnerable: ${mostVulnerable.label}.`);
+    }
+    const worstDay = diagnosticAnalysis.baselineContext.worstDay;
+    if (worstDay) {
+      const [, month, day] = worstDay.day.split('-');
+      parts.push(`Se detectó un evento crítico el ${day}/${month} que concentra la mayor caída observada en el período.`);
+    }
+    return parts.join(' ');
+  }, [diagnosticAnalysis]);
 
   return (
     <Box minH="100vh" bg="#ffffff" color="#2f3137" borderTop="4px solid #FF441F">
@@ -77,6 +96,9 @@ export function StoreAvailabilityDashboard() {
           <MetricsCards metrics={metrics} analysis={diagnosticAnalysis} />
         </Box>
         <DiagnosticInsights analysis={diagnosticAnalysis} />
+        <Box mt={6}>
+          <InsightsAssistant metrics={metrics} analysis={diagnosticAnalysis} />
+        </Box>
       </Box>
     </Box>
   );

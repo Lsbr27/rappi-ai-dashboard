@@ -59,11 +59,16 @@ export type TimelineData = {
 
 export type DashboardMetrics = {
   totalStores: number;
+  // % of hourly readings at or above healthyThreshold (baseline × 0.85).
+  // Measures signal health, NOT classic infrastructure uptime.
   uptime: number;
   totalChanges: number;
   totalReadings: number;
   readingsToReview: number;
+  /** @legacy — prefer averageDropMagnitude */
   avgDowntime: number;
+  /** Mean absolute delta across all negative steps in the period */
+  averageDropMagnitude: number;
   expectedAverage: number;
   latestVisible: number;
   latestDeltaPercent: number;
@@ -97,9 +102,19 @@ export type PatternBucket = {
 
 export type DailyImpactBucket = {
   label: string;
+  /** @legacy — prefer cumulativeDropMagnitude */
   totalLoss: number;
+  /** Sum of all negative-step magnitudes for the day (volatility proxy, not monetary loss) */
+  cumulativeDropMagnitude: number;
   dropCount: number;
   biggestDrop: number;
+};
+
+export type RecoveryStats = {
+  min: number;
+  median: number;
+  max: number;
+  avg: number;
 };
 
 export type DiagnosticAnalysis = {
@@ -109,7 +124,9 @@ export type DiagnosticAnalysis = {
   totalDrops: number;
   importantDrops: number;
   reviewShare: number;
+  /** @legacy — prefer recoveryStats.avg */
   avgRecoveryMinutes: number;
+  recoveryStats: RecoveryStats;
   patternSummary: string;
   worstPoint: {
     time: string;
@@ -127,12 +144,83 @@ export type DiagnosticAnalysis = {
   problematicHours: PatternBucket[];
   problematicDays: PatternBucket[];
   dailyImpact: DailyImpactBucket[];
+  baselineContext: BaselineContext;
 };
 
 declare global {
   interface Window {
     RAPPI_AVAILABILITY_DATA?: RappiAvailabilityData;
   }
+}
+
+export type BaselineContext = {
+  baselineValue: number;
+  healthyThreshold: number;
+  extremeDays: string[];
+  worstDay: { day: string; minValue: number } | null;
+  cleanPoints: Array<{ t: Date; value: number }>;
+};
+
+function percentileOf(nums: number[], p: number): number {
+  if (!nums.length) return 0;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const index = (p / 100) * (sorted.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+}
+
+function buildBaselineContext(
+  allSeriesPoints: Array<{ t: Date; value: number }>,
+  options: { thresholdFactor?: number } = {}
+): BaselineContext {
+  const thresholdFactor = options.thresholdFactor ?? 0.05;
+  const allValues = allSeriesPoints.map((p) => p.value);
+  const globalMedian = percentileOf(allValues, 50);
+  const extremeThreshold = globalMedian * thresholdFactor;
+
+  const byDay = new Map<string, Array<{ t: Date; value: number }>>();
+  for (const point of allSeriesPoints) {
+    const day = point.t.toISOString().slice(0, 10);
+    const existing = byDay.get(day) ?? [];
+    existing.push(point);
+    byDay.set(day, existing);
+  }
+
+  // worstDay = day with the absolute minimum value across the entire series.
+  // Tracked independently of extreme classification so the UI can always show it.
+  let worstDay: { day: string; minValue: number } | null = null;
+  for (const [day, dayPoints] of byDay) {
+    const minValue = Math.min(...dayPoints.map((p) => p.value));
+    if (!worstDay || minValue < worstDay.minValue) {
+      worstDay = { day, minValue };
+    }
+  }
+
+  // Extreme day detection: use the day's MEDIAN, not its minimum.
+  // This prevents cumulative metrics (which start near zero at the beginning of each
+  // collection window) from being classified as extreme on every single day.
+  // A day is only extreme if its typical (median) value is anomalously low.
+  const extremeDays: string[] = [];
+  for (const [day, dayPoints] of byDay) {
+    const dayMedian = percentileOf(dayPoints.map((p) => p.value), 50);
+    if (dayMedian <= extremeThreshold) {
+      extremeDays.push(day);
+    }
+  }
+
+  const extremeDaySet = new Set(extremeDays);
+  const cleanPoints = allSeriesPoints.filter(
+    (point) => !extremeDaySet.has(point.t.toISOString().slice(0, 10))
+  );
+
+  // Fallback: if all days are extreme (e.g. very sparse data), use the full series.
+  const referencePoints = cleanPoints.length > 0 ? cleanPoints : allSeriesPoints;
+  const baselineValue = percentileOf(referencePoints.map((p) => p.value), 50);
+  const healthyThreshold = baselineValue * 0.85;
+
+  return { baselineValue, healthyThreshold, extremeDays, worstDay, cleanPoints };
 }
 
 const formatCompact = new Intl.NumberFormat('es-CO', {
@@ -203,7 +291,12 @@ export function formatValue(value: number) {
 
 export function buildDashboardData(startDate: Date, endDate: Date) {
   const data = getRawData();
-  const baseline = data.summary.avg;
+  const allSeriesPoints = data.series
+    .map((point) => ({ t: new Date(point.t), value: point.value }))
+    .filter((point) => Number.isFinite(point.value));
+  const baselineCtx = buildBaselineContext(allSeriesPoints);
+  const baseline = baselineCtx.baselineValue;
+  const healthyThreshold = baselineCtx.healthyThreshold;
   const hourly = data.hourly.filter((point) => inRange(point.t, startDate, endDate));
   const files = data.files.filter((file) => inRange(file.start, startDate, endDate));
   const latestByFile = new Map<string, AvailabilityFile>();
@@ -219,14 +312,14 @@ export function buildDashboardData(startDate: Date, endDate: Date) {
     .slice(0, 80)
     .map((file, index) => ({
       id: `Reporte ${String(index + 1).padStart(3, '0')}`,
-      currentStatus: statusForValue(file.avg, baseline * 0.85),
+      currentStatus: statusForValue(file.avg, healthyThreshold),
     }));
 
   const statusHistory = files.slice(0, 220).map((file, index) => ({
     id: `${file.file}-${index}`,
     storeId: `Reporte ${String((index % Math.max(stores.length, 1)) + 1).padStart(3, '0')}`,
     timestamp: new Date(file.end),
-    status: statusForValue(file.avg, baseline * 0.85),
+    status: statusForValue(file.avg, healthyThreshold),
     duration: minutesBetween(file.start, file.end),
     value: file.avg,
   }));
@@ -242,7 +335,7 @@ export function buildDashboardData(startDate: Date, endDate: Date) {
   }));
 
   const totalRecords = hourly.length;
-  const onlineRecords = hourly.filter((point) => point.avg >= baseline * 0.85).length;
+  const onlineRecords = hourly.filter((point) => point.avg >= healthyThreshold).length;
   const offlineRecords = Math.max(totalRecords - onlineRecords, 0);
   const uptime = totalRecords > 0 ? (onlineRecords / totalRecords) * 100 : 0;
   const latestVisible = data.summary.latest.value;
@@ -257,9 +350,11 @@ export function buildDashboardData(startDate: Date, endDate: Date) {
     }))
     .filter((entry) => entry.delta < 0);
 
-  const avgDowntime = drops.length
+  const averageDropMagnitude = drops.length
     ? Math.round(drops.reduce((sum, entry) => sum + Math.abs(entry.delta), 0) / drops.length)
-    : offlineRecords;
+    : 0;
+  // avgDowntime kept for UI compatibility; mirrors averageDropMagnitude (fallback differs for legacy reasons)
+  const avgDowntime = averageDropMagnitude || offlineRecords;
 
   return {
     stores,
@@ -267,6 +362,7 @@ export function buildDashboardData(startDate: Date, endDate: Date) {
     timelineData,
     source: data.source,
     summary: data.summary,
+    baselineContext: baselineCtx,
     metrics: {
       totalStores: data.source.files,
       uptime: Number(uptime.toFixed(1)),
@@ -274,6 +370,7 @@ export function buildDashboardData(startDate: Date, endDate: Date) {
       totalReadings: totalRecords,
       readingsToReview: offlineRecords,
       avgDowntime,
+      averageDropMagnitude,
       expectedAverage: baseline,
       latestVisible,
       latestDeltaPercent: Number(latestDeltaPercent.toFixed(1)),
@@ -284,14 +381,14 @@ export function buildDashboardData(startDate: Date, endDate: Date) {
 
 export function buildDiagnosticAnalysis(startDate: Date, endDate: Date): DiagnosticAnalysis {
   const data = getRawData();
-  const expectedAverage = data.summary.avg;
-  const expectedThreshold = expectedAverage * 0.85;
-  const importantDropThreshold = expectedAverage * 0.15;
-  const points = data.series
-    .map((point) => ({
-      t: new Date(point.t),
-      value: point.value,
-    }))
+  const allSeriesPoints = data.series
+    .map((point) => ({ t: new Date(point.t), value: point.value }))
+    .filter((point) => Number.isFinite(point.value));
+  const baselineCtx = buildBaselineContext(allSeriesPoints);
+  const baselineValue = baselineCtx.baselineValue;
+  const expectedThreshold = baselineCtx.healthyThreshold;
+  const importantDropThreshold = baselineValue * 0.15;
+  const points = allSeriesPoints
     .filter((point) => point.t >= startDate && point.t <= endDate)
     .sort((a, b) => a.t.getTime() - b.t.getTime());
 
@@ -358,13 +455,20 @@ export function buildDiagnosticAnalysis(startDate: Date, endDate: Date): Diagnos
   }
 
   const recoveredIncidents = incidents.filter((incident) => incident.recovery);
-  const avgRecoveryMinutes = recoveredIncidents.length
-    ? Math.round(
-        recoveredIncidents.reduce((sum, incident) => {
-          return sum + Math.round((incident.recovery!.t.getTime() - incident.start.t.getTime()) / 60000);
-        }, 0) / recoveredIncidents.length,
-      )
+  const recoveryMinutes = recoveredIncidents.map((incident) =>
+    Math.round((incident.recovery!.t.getTime() - incident.start.t.getTime()) / 60000),
+  );
+  const avgRecoveryMinutes = recoveryMinutes.length
+    ? Math.round(recoveryMinutes.reduce((a, b) => a + b, 0) / recoveryMinutes.length)
     : 0;
+  const recoveryStats: RecoveryStats = recoveryMinutes.length
+    ? {
+        min: Math.min(...recoveryMinutes),
+        median: Math.round(percentileOf(recoveryMinutes, 50)),
+        max: Math.max(...recoveryMinutes),
+        avg: avgRecoveryMinutes,
+      }
+    : { min: 0, median: 0, max: 0, avg: 0 };
 
   const hourBuckets = new Map<string, { label: string; count: number; below: number; sum: number }>();
   const dayBuckets = new Map<string, { label: string; count: number; below: number; sum: number }>();
@@ -374,14 +478,16 @@ export function buildDiagnosticAnalysis(startDate: Date, endDate: Date): Diagnos
     const hourBucket = hourBuckets.get(hour) || { label: `${hour}:00`, count: 0, below: 0, sum: 0 };
     hourBucket.count += 1;
     hourBucket.sum += point.value;
-    if (point.value < expectedThreshold) hourBucket.below += 1;
+    // Compare against baselineValue (median), not healthyThreshold (0.85× baseline).
+    // healthyThreshold is for incident detection; baselineValue gives meaningful "below expected" counts.
+    if (point.value < baselineValue) hourBucket.below += 1;
     hourBuckets.set(hour, hourBucket);
 
     const day = formatDay(point.t);
     const dayBucket = dayBuckets.get(day) || { label: day, count: 0, below: 0, sum: 0 };
     dayBucket.count += 1;
     dayBucket.sum += point.value;
-    if (point.value < expectedThreshold) dayBucket.below += 1;
+    if (point.value < baselineValue) dayBucket.below += 1;
     dayBuckets.set(day, dayBucket);
   });
 
@@ -406,8 +512,9 @@ export function buildDiagnosticAnalysis(startDate: Date, endDate: Date): Diagnos
       day: '2-digit',
       month: '2-digit',
     });
-    const existing = dayImpactMap.get(label) ?? { label, totalLoss: 0, dropCount: 0, biggestDrop: 0 };
+    const existing = dayImpactMap.get(label) ?? { label, totalLoss: 0, cumulativeDropMagnitude: 0, dropCount: 0, biggestDrop: 0 };
     existing.totalLoss += Math.abs(point.delta);
+    existing.cumulativeDropMagnitude += Math.abs(point.delta);
     existing.dropCount += 1;
     if (Math.abs(point.delta) > existing.biggestDrop) existing.biggestDrop = Math.abs(point.delta);
     dayImpactMap.set(label, existing);
@@ -421,8 +528,9 @@ export function buildDiagnosticAnalysis(startDate: Date, endDate: Date): Diagnos
     : 'No se ve una franja dominante; el deterioro parece disperso y más puntual que constante.';
 
   return {
-    expectedAverage,
+    expectedAverage: baselineValue,
     expectedThreshold,
+    baselineContext: baselineCtx,
     importantDropThreshold,
     totalDrops: drops.length,
     importantDrops: importantDrops.length,
@@ -430,6 +538,7 @@ export function buildDiagnosticAnalysis(startDate: Date, endDate: Date): Diagnos
       ? Math.round((enriched.filter((point) => point.value < expectedThreshold).length / enriched.length) * 100)
       : 0,
     avgRecoveryMinutes,
+    recoveryStats,
     patternSummary,
     worstPoint: {
       time: formatDateTime(worstPoint.t),
@@ -444,14 +553,24 @@ export function buildDiagnosticAnalysis(startDate: Date, endDate: Date): Diagnos
           pct: Math.abs(Number(biggestDrop.pct.toFixed(1))),
         }
       : null,
-    chartData: enriched.map((point) => ({
-      time: formatDateTime(point.t),
-      value: point.value,
-      expected: Math.round(expectedAverage),
-      drop: point.delta < 0 ? Math.abs(point.delta) : undefined,
-      isImportantDrop: point.delta <= -importantDropThreshold,
-      isWorst: point.t.getTime() === worstPoint.t.getTime(),
-    })),
+    chartData: (() => {
+      // Downsample to ≤300 points for legibility; always keep worstPoint and important drops.
+      const step = Math.max(1, Math.ceil(enriched.length / 300));
+      return enriched
+        .filter((point, i) =>
+          i % step === 0 ||
+          point.t.getTime() === worstPoint.t.getTime() ||
+          point.delta <= -importantDropThreshold,
+        )
+        .map((point) => ({
+          time: formatDateTime(point.t),
+          value: point.value,
+          expected: Math.round(baselineValue),
+          drop: point.delta < 0 ? Math.abs(point.delta) : undefined,
+          isImportantDrop: point.delta <= -importantDropThreshold,
+          isWorst: point.t.getTime() === worstPoint.t.getTime(),
+        }));
+    })(),
     incidents: incidents
       .filter((incident) => incident.recovery)
       .map((incident, index) => ({
@@ -463,7 +582,81 @@ export function buildDiagnosticAnalysis(startDate: Date, endDate: Date): Diagnos
         minValue: incident.min.value,
       })),
     problematicHours,
-    problematicDays,
     dailyImpact,
   };
+}
+
+export function getChatResponse(question: string, dashboardData: { metrics: DashboardMetrics; analysis: DiagnosticAnalysis }): string {
+  const { metrics, analysis } = dashboardData;
+  const normalized = question.toLowerCase().trim();
+
+  // Normalize question
+  const cleanQuestion = normalized
+    .replace(/[¿?¡!.,;:]/g, '')
+    .replace(/\s+/g, ' ');
+
+  // Detect intention
+  let intention: string;
+
+  if (cleanQuestion.includes('resumen') || cleanQuestion.includes('summary') || cleanQuestion.includes('estado') || cleanQuestion.includes('general')) {
+    intention = 'summary';
+  } else if (cleanQuestion.includes('evento critico') || cleanQuestion.includes('critical') || cleanQuestion.includes('incidente') || cleanQuestion.includes('peor dia') || cleanQuestion.includes('worst day')) {
+    intention = 'critical_event';
+  } else if (cleanQuestion.includes('hora') || cleanQuestion.includes('horas') || cleanQuestion.includes('problematic hours') || cleanQuestion.includes('franja')) {
+    intention = 'problem_hours';
+  } else if (cleanQuestion.includes('dia') || cleanQuestion.includes('dias') || cleanQuestion.includes('problematic days') || cleanQuestion.includes('deterioro')) {
+    intention = 'problem_days';
+  } else if (cleanQuestion.includes('recuperacion') || cleanQuestion.includes('recovery') || cleanQuestion.includes('tiempo') || cleanQuestion.includes('restaurar')) {
+    intention = 'recovery';
+  } else if (cleanQuestion.includes('metrica') || cleanQuestion.includes('uptime') || cleanQuestion.includes('disponibilidad') || cleanQuestion.includes('explicar') || cleanQuestion.includes('que significa')) {
+    intention = 'metric_explainer';
+  } else {
+    intention = 'fallback';
+  }
+
+  // Generate response based on intention
+  switch (intention) {
+    case 'summary':
+      const state = metrics.uptime >= 95 ? 'estable' : metrics.uptime >= 85 ? 'con algunas alertas' : 'crítico';
+      const drops = analysis.importantDrops;
+      const reviewPct = analysis.reviewShare;
+      return `El estado general es ${state} con ${formatValue(metrics.uptime)}% de uptime. Se registraron ${drops} caídas importantes y el ${reviewPct}% de las lecturas requieren revisión. El promedio esperado es ${formatValue(metrics.expectedAverage)} tiendas visibles.`;
+
+    case 'critical_event':
+      const worstDay = analysis.baselineContext.worstDay;
+      if (worstDay) {
+        const [, month, day] = worstDay.day.split('-');
+        return `El evento crítico ocurrió el ${day}/${month} con un mínimo de ${formatValue(worstDay.minValue)} tiendas visibles. Esta fecha concentra la mayor caída observada en el período.`;
+      }
+      return 'No se detectó un evento crítico claro en el período analizado.';
+
+    case 'problem_hours':
+      const topHours = analysis.problematicHours.slice(0, 3);
+      if (topHours.length) {
+        const hoursText = topHours.map(h => `${h.label} (${h.belowPct}% bajo lo esperado)`).join(', ');
+        return `Las horas más problemáticas son: ${hoursText}. Estas franjas concentran la mayor proporción de lecturas por debajo del promedio esperado.`;
+      }
+      return 'No se identificaron horas con deterioro significativo en el período.';
+
+    case 'problem_days':
+      const topDays = analysis.problematicDays.slice(0, 3);
+      if (topDays.length) {
+        const daysText = topDays.map(d => `${d.label} (${d.belowPct}% bajo lo esperado)`).join(', ');
+        return `Los días más problemáticos son: ${daysText}. Estos días muestran mayor variabilidad y lecturas por debajo del promedio.`;
+      }
+      return 'No se identificaron días con deterioro significativo en el período.';
+
+    case 'recovery':
+      const { recoveryStats } = analysis;
+      if (recoveryStats.avg > 0) {
+        return `La mediana de tiempo de recuperación es ${formatMinutes(recoveryStats.median)}. El rango observado va de ${formatMinutes(recoveryStats.min)} a ${formatMinutes(recoveryStats.max)} minutos basado en ${analysis.incidents.length} incidentes cerrados.`;
+      }
+      return 'No hay suficientes datos de incidentes cerrados para calcular estadísticas de recuperación.';
+
+    case 'metric_explainer':
+      return `El uptime mide el porcentaje de lecturas por hora que están al menos en el 85% del promedio esperado (${formatValue(metrics.expectedAverage)} tiendas). No es uptime tradicional de infraestructura, sino salud de la señal de disponibilidad. La magnitud promedio de caídas es ${formatValue(metrics.averageDropMagnitude)} tiendas.`;
+
+    default:
+      return 'No entiendo tu pregunta. Puedes preguntarme sobre el resumen general, eventos críticos, horas o días problemáticos, recuperación, o explicación de métricas.';
+  }
 }

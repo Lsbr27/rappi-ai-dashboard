@@ -1,57 +1,75 @@
-# Rappi Availability Dashboard
+# Store Availability Intelligence Dashboard – Rappi Case
 
-Dashboard para analizar la disponibilidad histórica de tiendas visibles en Rappi, construido sobre datos de monitoreo sintético (`synthetic_monitoring_visible_stores`).
+Este proyecto analiza la disponibilidad de tiendas visibles en Rappi a lo largo del tiempo, con el objetivo de identificar patrones de degradación, eventos críticos y oportunidades de monitoreo operativo.
 
-## Stack
+## Problema
 
-- **React 18** + **Vite**
-- **Chakra UI** — componentes y layout
-- **Recharts** — gráficos interactivos
-- **Lucide React** — íconos
+En el ecosistema de Rappi, la disponibilidad de tiendas es un elemento clave porque conecta tres actores fundamentales:
 
-## Correr localmente
+* Personas que quieren vender
+* Personas que quieren comprar
+* Personas que transportan
 
-```bash
-cd figma-dashboard
-npm install
-npm run dev
-```
+Cuando la disponibilidad baja, no es solo un número: se afecta directamente la experiencia del usuario y la operación.
 
-Abre `http://localhost:5173`
+El reto consiste en trabajar con series temporales para:
 
-## Regenerar los datos
+* Entender cuándo y cómo baja la disponibilidad
+* Identificar patrones por hora y por día
+* Detectar eventos críticos
+* Traducir los datos en insights útiles para operaciones
 
-Los datos viven en `figma-dashboard/public/data.js`, generados a partir de los CSVs de exportación:
+## Enfoque analítico
 
-```bash
-node scripts/preprocess.js
-cp app/data.js figma-dashboard/public/data.js
-```
+### Separación entre comportamiento estructural y eventos extremos
 
-> Los CSV originales (`Archivo (1)/`) no se incluyen en el repositorio.
+Durante el análisis se identificó un evento atípico que distorsionaba completamente la lectura del sistema (una caída abrupta a valores cercanos a cero).
 
-## Estructura
+En lugar de eliminarlo, se tomó una decisión clave:
 
-```
-├── figma-dashboard/        # Dashboard React (fuente principal)
-│   ├── public/data.js      # Dataset preprocesado
-│   └── src/
-│       ├── app/
-│       │   ├── components/ # DiagnosticInsights, MetricsCards, StoreAvailabilityDashboard
-│       │   └── utils/      # availabilityData.ts — toda la lógica de análisis
-│       └── main.tsx
-└── scripts/
-    └── preprocess.js       # Transforma CSVs → data.js
-```
+* Mantenerlo visible como evento crítico
+* Excluirlo del cálculo del baseline
+* Separarlo del comportamiento estructural del sistema
 
-## Qué muestra
+Esto permite diferenciar entre un sistema inestable y un sistema estable con un incidente puntual.
 
-- **KPIs** — disponibilidad actual, estabilidad, caídas detectadas, impacto, tiempo de recuperación
-- **Evolución temporal** — serie real vs. promedio esperado, puntos críticos marcados
-- **Horas y días más problemáticos** — ranking con porcentaje bajo lo esperado
-- **Distribución por hora y día** — gráficos de barras con escala de severidad
-- **Impacto de caídas por día** — top 5 días por pérdida acumulada de tiendas visibles
+### Definición de un baseline robusto
 
-## Limitaciones
+El baseline no se calcula con promedio, sino con mediana (P50):
 
-El dataset contiene una métrica agregada, no eventos por tienda individual. El análisis refleja disponibilidad total, no segmentada por tienda, ciudad o vertical. Con un dataset granular la misma estructura puede extenderse con esos filtros.
+* Es más robusta frente a outliers
+* Representa mejor el comportamiento típico del sistema
+
+### Dos niveles de referencia
+
+Se definieron dos referencias distintas, cada una con un propósito claro:
+
+* **baselineValue (mediana):**
+  Representa el nivel esperado de disponibilidad
+
+* **healthyThreshold (85% del baseline):**
+  Define el umbral mínimo saludable del sistema
+
+Esta separación permite distinguir entre:
+
+* degradación normal (patrón)
+* incidentes reales (salud del sistema)
+
+## Métricas
+
+El dashboard se construye alrededor de métricas que permiten interpretar el comportamiento del sistema de forma clara:
+
+* **Estabilidad del sistema**
+  Porcentaje de lecturas por encima del umbral saludable
+
+* **Magnitud promedio de caída**
+  Promedio del delta en eventos negativos
+
+* **Volatilidad acumulada**
+  Suma de variaciones negativas por día
+
+* **Tiempo de recuperación**
+  Mediana y rango de duración de los incidentes
+
+* **Horas y días problemáticos**
+  Porcentaje de lecturas por debajo del nivel esperado (baseline)
